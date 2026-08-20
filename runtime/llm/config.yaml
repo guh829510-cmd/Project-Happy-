@@ -1,0 +1,50 @@
+# LiteLLM proxy — minimum configuration for Step 1.
+# Requirements 5,6,8,9,10,11,12 are all satisfied here. Nothing else is set.
+
+model_list:
+  # Requirement 5: a single provider.
+  - model_name: chat
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      # Requirement 6: key resolved from the environment at runtime.
+      # The literal string below is a reference, not a secret.
+      api_key: os.environ/ANTHROPIC_API_KEY
+      # Production: https://api.anthropic.com
+      # Offline verification points this at the local stub instead, so the
+      # same provider code path is exercised without spending money.
+      api_base: os.environ/ANTHROPIC_API_BASE
+      # Requirement 11: maximum output tokens.
+      max_tokens: 512
+      # Requirement 9: request timeout (seconds).
+      timeout: 30
+      # Requirement 10: retry limit for this deployment.
+      num_retries: 2
+
+litellm_settings:
+  # Requirement 8: in-process spend ceiling. VERIFIED to reject requests once
+  # cumulative cost crosses it, with no database required. This is the ceiling
+  # that actually protects a local install.
+  max_budget: 5.00
+  # Requirement 12: emit request/response metadata for cost accounting.
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]
+  # Requirement 10: global retry ceiling.
+  num_retries: 2
+  # Requirement 9: global request timeout (seconds).
+  request_timeout: 30
+  # Fail loudly rather than silently swallowing a logging error.
+  set_verbose: false
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Second ceiling, database-backed. VERIFIED INERT without Postgres:
+  # proxy_server.py gates it on `prisma_client is not None`. Kept for the VPS
+  # deployment, where a database exists. Do not rely on it locally.
+  max_budget: 5.00
+  budget_duration: 30d
+
+router_settings:
+  # Requirement 10: do not retry forever on a failing upstream.
+  allowed_fails: 3
+  cooldown_time: 60

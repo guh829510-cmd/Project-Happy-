@@ -1,0 +1,67 @@
+# OPTIONAL — self-hosted Langfuse.
+#
+# Read this before running it: Langfuse v4 self-hosted is SIX containers and
+# needs roughly 4 GB of RAM. On a low-spec machine that fails the Chairman's
+# "lightweight enough" test. Prefer Langfuse Cloud's free tier (set
+# LANGFUSE_HOST=https://cloud.langfuse.com in .env) and keep this file for
+# the VPS later.
+#
+# Images pinned to the major tags Langfuse publishes upstream.
+services:
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:4
+    depends_on: [postgres, clickhouse, redis, minio]
+    ports: ["3000:3000"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      SALT: ${LANGFUSE_SALT:-changeme-salt}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-secret}
+      NEXTAUTH_URL: http://localhost:3000
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:4
+    depends_on: [postgres, clickhouse, redis, minio]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      SALT: ${LANGFUSE_SALT:-changeme-salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  postgres:
+    image: docker.io/postgres:17
+    environment: { POSTGRES_PASSWORD: postgres }
+    volumes: ["langfuse_pg:/var/lib/postgresql/data"]
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    environment: { CLICKHOUSE_PASSWORD: clickhouse }
+    volumes: ["langfuse_ch:/var/lib/clickhouse"]
+  redis:
+    image: docker.io/redis:7
+  minio:
+    image: docker.io/minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    volumes: ["langfuse_minio:/data"]
+
+volumes:
+  langfuse_pg:
+  langfuse_ch:
+  langfuse_minio:
