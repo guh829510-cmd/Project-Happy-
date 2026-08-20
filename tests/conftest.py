@@ -6,10 +6,13 @@ socket, reads a clock, or needs a credential.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
+from happy.core.capability import Capability
+from happy.core.risk import RiskTier
 from happy.core.terms import (
     CommercialUse,
     CostKind,
@@ -18,6 +21,12 @@ from happy.core.terms import (
     Permission,
     RateLimit,
 )
+from happy.governance.audit import AuditChain
+from happy.governance.budget_guard import BudgetGuard, BudgetLimits
+from happy.governance.capability import CapabilityToken, TokenIssuer
+from happy.governance.gateway import ApprovalGateway
+from happy.governance.kill_switch import KillSwitch
+from happy.governance.policy import PolicyEngine
 
 TODAY = date(2026, 8, 20)
 """Injected 'now' for the whole suite. The domain never reads a real clock."""
@@ -101,4 +110,122 @@ def stale_source() -> DataSourceMetadata:
         redistribution_allowed=Permission.ALLOWED,
         derived_data_allowed=Permission.ALLOWED,
         last_verified=date(2024, 1, 1),
+    )
+
+
+# --- Governance fixtures ---------------------------------------------------
+#
+# The kernel is built entirely from injected effects, so a test can move time
+# forward by an hour, assert on the exact identifier in an audit record, and
+# still run in microseconds with no clock, no socket and no database.
+
+NOW = datetime(2026, 8, 20, 9, 0, tzinfo=UTC)
+SIGNING_SECRET = b"test-signing-secret-32-bytes-min!!"
+
+
+class FrozenClock:
+    """A clock that only moves when a test moves it."""
+
+    def __init__(self, instant: datetime = NOW) -> None:
+        self._instant = instant
+
+    def now(self) -> datetime:
+        return self._instant
+
+    def today(self) -> date:
+        return self._instant.date()
+
+    def advance(self, delta: timedelta) -> None:
+        self._instant += delta
+
+
+class SequentialIds:
+    """Deterministic identifiers, so audit assertions can name them."""
+
+    def __init__(self, prefix: str) -> None:
+        self._prefix = prefix
+        self._next = 0
+
+    def __call__(self) -> str:
+        self._next += 1
+        return f"{self._prefix}-{self._next}"
+
+
+@pytest.fixture
+def clock() -> FrozenClock:
+    return FrozenClock()
+
+
+@pytest.fixture
+def audit(clock: FrozenClock) -> AuditChain:
+    return AuditChain(clock)
+
+
+@pytest.fixture
+def issuer(clock: FrozenClock) -> TokenIssuer:
+    return TokenIssuer(SIGNING_SECRET, clock, id_factory=SequentialIds("token"))
+
+
+@pytest.fixture
+def limits() -> BudgetLimits:
+    return BudgetLimits(
+        per_action_usd=Decimal("2.00"),
+        per_task_usd=Decimal("5.00"),
+        per_agent_daily_usd=Decimal("10.00"),
+        per_venture_daily_usd=Decimal("25.00"),
+        global_daily_usd=Decimal("50.00"),
+        global_monthly_usd=Decimal("300.00"),
+    )
+
+
+@pytest.fixture
+def budget(limits: BudgetLimits, clock: FrozenClock) -> BudgetGuard:
+    return BudgetGuard(limits, clock, id_factory=SequentialIds("res"))
+
+
+@pytest.fixture
+def gateway(clock: FrozenClock, audit: AuditChain) -> ApprovalGateway:
+    return ApprovalGateway(clock, audit, id_factory=SequentialIds("appr"))
+
+
+@pytest.fixture
+def kill_switch(audit: AuditChain) -> KillSwitch:
+    return KillSwitch(audit)
+
+
+@pytest.fixture
+def engine(
+    clock: FrozenClock,
+    issuer: TokenIssuer,
+    budget: BudgetGuard,
+    gateway: ApprovalGateway,
+    audit: AuditChain,
+    kill_switch: KillSwitch,
+) -> PolicyEngine:
+    return PolicyEngine(
+        clock=clock,
+        issuer=issuer,
+        budget_guard=budget,
+        gateway=gateway,
+        audit=audit,
+        kill_switch=kill_switch,
+    )
+
+
+@pytest.fixture
+def token(issuer: TokenIssuer) -> CapabilityToken:
+    """A workaday research token: read the network, think, spend a little."""
+    return issuer.issue(
+        subject="research_analyst",
+        capabilities=frozenset(
+            {
+                Capability.NETWORK_READ,
+                Capability.LLM_INFERENCE,
+                Capability.FILESYSTEM_READ,
+            }
+        ),
+        port_ids=frozenset({"llm_provider", "research_provider", "data_source"}),
+        max_tier=RiskTier.T1,
+        budget_usd=Decimal("3.00"),
+        venture_id="venture-1",
     )
