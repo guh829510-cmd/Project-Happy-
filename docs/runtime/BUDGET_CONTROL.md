@@ -154,6 +154,30 @@ per-agent or per-task limit; it covers only Anthropic, not Stripe, hosting or
 domains; and recovering from it needs a human. It is a circuit breaker of last
 resort, not a budget.
 
+### 6.0 The policy now in force
+
+Set 2026-08-20. Limits are data in `runtime/llm/scripts/set_limits.py`, so a
+change is a reviewable diff; re-run it after cloning, because `data/` is
+gitignored and does not survive a fresh machine.
+
+| Control | Limit | Rationale |
+|---|---|---|
+| **Anthropic workspace (provider backstop)** | **$20 / month** | Set by the Chairman in the Console. Holds even when our guard is wrong |
+| `company` / `monthly` | **$15** | 25% under the provider limit, so our guard trips first |
+| `daily` | **$1.00** | One bad day cannot consume the month |
+| `agent` | $5.00 | One agent cannot consume the day |
+| `task` | $2.00 | One task cannot consume an agent |
+| `request` | $0.50 | One call cannot consume a task |
+
+`set_limits.py` asserts `company < provider` and refuses to run otherwise.
+
+**Limits are policy, not a client concern.** Neither `guarded_client.py` nor
+`discovery.py` may create or raise a limit: they read what policy declared and
+refuse to run if a scope is undeclared. `--set-limits` fills in missing scopes
+on a fresh store and still never raises an existing one. Without this a caller
+could widen its own ceiling, which would make the guard advisory rather than
+authoritative.
+
 ### 6.1 Configuration checklist (Chairman)
 
 1. Create a workspace in the Claude Console dedicated to this system.

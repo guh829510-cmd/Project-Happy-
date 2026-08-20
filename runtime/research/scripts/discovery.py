@@ -308,8 +308,18 @@ async def run(args: argparse.Namespace) -> int:
         "monthly": today.strftime("%Y-%m"),
         "company": "global",
     }
+    # Limits are policy (runtime/llm/scripts/set_limits.py). A run consumes them
+    # and must not be able to widen its own ceiling; --set-limits only fills in
+    # scopes that do not exist yet, on a fresh store.
     for scope, name in scopes.items():
-        store.set_limit(scope, name, args.budget)
+        if store.remaining(scope, name) is None:
+            if not args.set_limits:
+                print(
+                    f"no limit declared for {scope}:{name}. "
+                    "Run runtime/llm/scripts/set_limits.py first, or pass --set-limits."
+                )
+                return 2
+            store.set_limit(scope, name, args.budget)
 
     if args.backend == "fixture":
         backend: SearchBackend = FixtureBackend(Path(args.fixture))
@@ -424,6 +434,11 @@ def main() -> int:
     ap.add_argument("--results-per-query", type=int, default=5)
     ap.add_argument("--max-pages", type=int, default=8)
     ap.add_argument("--budget", default="1.00")
+    ap.add_argument(
+        "--set-limits",
+        action="store_true",
+        help="create missing limits on a fresh store; never raises an existing one",
+    )
     ap.add_argument("--db", default=str(REPO / "data" / "budget.db"))
     ap.add_argument("--base", default="http://127.0.0.1:4000")
     ap.add_argument("--task-id", default="discovery-001")

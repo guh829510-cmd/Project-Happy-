@@ -114,6 +114,11 @@ def main() -> int:
     ap.add_argument("--db", default=str(REPO / "data" / "budget.db"))
     ap.add_argument("--base", default="http://127.0.0.1:4000")
     ap.add_argument("--company-limit", default="1.00")
+    ap.add_argument(
+        "--set-limits",
+        action="store_true",
+        help="create missing limits on a fresh store; never raises an existing one",
+    )
     args = ap.parse_args()
 
     here = Path(__file__).resolve().parent.parent
@@ -137,8 +142,19 @@ def main() -> int:
         "monthly": today.strftime("%Y-%m"),
         "company": "global",
     }
+    # A caller must not be able to widen its own ceiling. Limits are policy,
+    # set by scripts/set_limits.py; this client only consumes them. --set-limits
+    # is for a fresh store, and it still refuses to raise an existing limit.
     for scope, key_name in scopes.items():
-        store.set_limit(scope, key_name, args.company_limit)
+        current = store.remaining(scope, key_name)
+        if current is None:
+            if not args.set_limits:
+                print(
+                    f"no limit declared for {scope}:{key_name}. "
+                    "Run scripts/set_limits.py first, or pass --set-limits."
+                )
+                return 2
+            store.set_limit(scope, key_name, args.company_limit)
 
     gate = SpendGate(store, now=lambda: datetime.now(UTC))
     messages = [{"role": "user", "content": "Reply with exactly: ok"}]
