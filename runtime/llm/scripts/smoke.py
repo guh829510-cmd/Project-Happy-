@@ -64,7 +64,9 @@ status, body, headers = call(
 )
 ok13 = status == 200 and body.get("choices")
 text = body.get("choices", [{}])[0].get("message", {}).get("content", "") if ok13 else ""
-record("13 request through LiteLLM", "PASS" if ok13 else "FAIL", f"HTTP {status}, reply={text!r}")
+record(
+    "13 request through LiteLLM", "PASS" if ok13 else "FAIL", f"HTTP {status}, reply={text!r}"
+)
 
 # --- 15: cost is observable ------------------------------------------------
 usage = body.get("usage", {}) if ok13 else {}
@@ -102,9 +104,12 @@ for _ in range(30):
         blob = json.dumps(lines)
         if lines:
             trace_ok = True
-            batch = sum(len(l["payload"].get("batch", [])) for l in lines)
+            batch = sum(len(rec["payload"].get("batch", [])) for rec in lines)
             has_usage = "usage" in blob or "completion_tokens" in blob or "output" in blob
-            detail = f"{len(lines)} ingestion POST(s), {batch} event(s), usage/cost fields present={has_usage}"
+            detail = (
+                f"{len(lines)} ingestion POST(s), {batch} event(s), "
+                f"usage/cost fields present={has_usage}"
+            )
             break
 record("14 Langfuse trace received", "PASS" if trace_ok else "FAIL", detail)
 
@@ -164,6 +169,8 @@ print(f"{passed} passed, {len(failed)} failed, {len(blocked)} blocked upstream")
 for name, st, _ in results:
     print(f"  {st:7} {name}")
 if blocked:
-    print("\nBLOCKED items are upstream limitations, documented in "
-          "docs/runtime/LLM_SMOKE_TEST.md. They are not local misconfiguration.")
+    print(
+        "\nBLOCKED items are upstream limitations, documented in "
+        "docs/runtime/LLM_SMOKE_TEST.md. They are not local misconfiguration."
+    )
 sys.exit(1 if failed else 0)

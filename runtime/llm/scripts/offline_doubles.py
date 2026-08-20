@@ -57,7 +57,10 @@ class AnthropicStub(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(
                 json.dumps(
-                    {"type": "error", "error": {"type": "api_error", "message": "stub: forced failure"}}
+                    {
+                        "type": "error",
+                        "error": {"type": "api_error", "message": "stub: forced failure"},
+                    }
                 ).encode()
             )
             return

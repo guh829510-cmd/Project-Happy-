@@ -34,13 +34,33 @@ def redact_secrets(text: str) -> str:
     return _SECRET_PATTERN.sub(REDACTED, text)
 
 
+def _canonical_default(obj: Any) -> Any:
+    """Render a non-JSON value deterministically.
+
+    Sets are sorted into lists. Falling through to `str()` here would emit
+    Python's `repr`, whose element order depends on the process hash seed — the
+    same logical payload would then hash differently in different processes,
+    which is fatal for both a signature and a hash chain.
+    """
+    if isinstance(obj, (set, frozenset)):
+        return sorted(
+            (_canonical_default(o) if isinstance(o, (set, frozenset)) else o for o in obj),
+            key=str,
+        )
+    return str(obj)
+
+
 def canonical_json(payload: Any) -> str:
-    """Deterministic JSON. `default=str` keeps Decimal and datetime hashable."""
+    """Deterministic JSON.
+
+    Keys are sorted, separators fixed, and non-JSON values are rendered by
+    `_canonical_default` so the output depends only on the payload's content.
+    """
     return json.dumps(
         payload,
         sort_keys=True,
         separators=(",", ":"),
-        default=str,
+        default=_canonical_default,
         ensure_ascii=False,
     )
 
