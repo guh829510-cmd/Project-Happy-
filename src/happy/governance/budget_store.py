@@ -46,6 +46,18 @@ corruption" and "detects tampering".
 
 MIN_AUDIT_SECRET_BYTES = 32
 
+
+class _Unset:
+    """Distinguishes "argument omitted" from an explicit `None`.
+
+    `audit_secret=None` must mean *deliberately unkeyed*. Without this sentinel
+    it is indistinguishable from "not supplied", and a caller asking for an
+    unkeyed store would silently get a keyed one from the environment.
+    """
+
+
+_UNSET = _Unset()
+
 NANO: Final = Decimal("1000000000")
 """Nanodollars per dollar. Costs below 1e-9 USD round up to 1, never to 0."""
 
@@ -160,19 +172,20 @@ class BudgetStore:
         path: str | Path,
         *,
         ttl: timedelta = DEFAULT_RESERVATION_TTL,
-        audit_secret: bytes | None = None,
+        audit_secret: bytes | _Unset | None = _UNSET,
     ) -> None:
         """Open the store.
 
         Args:
-            audit_secret: key for the audit chain. Defaults to the hex value in
-                `$HAPPY_AUDIT_HMAC_SECRET`. When absent the chain falls back to
-                the unkeyed SHA-256 form, which is tamper-*evident* only — see
-                `chain_mode`.
+            audit_secret: key for the audit chain. When omitted, read from
+                `$HAPPY_AUDIT_HMAC_SECRET`. Pass `None` to force the unkeyed
+                SHA-256 form, which is tamper-*evident* only — see `chain_mode`.
         """
         self._path = str(path)
         self._ttl = ttl
-        self._secret = audit_secret if audit_secret is not None else _secret_from_env()
+        self._secret = (
+            _secret_from_env() if isinstance(audit_secret, _Unset) else audit_secret
+        )
         if self._secret is not None and len(self._secret) < MIN_AUDIT_SECRET_BYTES:
             raise ValueError(
                 f"audit secret must be at least {MIN_AUDIT_SECRET_BYTES} bytes, "
