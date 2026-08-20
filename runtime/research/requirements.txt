@@ -1,0 +1,13 @@
+# Research runtime. Python 3.12+ required (gpt-researcher 0.16.0 needs >=3.12).
+#
+# crawlee 1.9.2         — Apache-2.0 (dist metadata). Verified working.
+# gpt-researcher 0.16.0 — repo LICENSE says Apache-2.0, dist metadata says MIT.
+#                         Discrepancy recorded in docs/runtime/DISCOVERY_RUN.md.
+#                         Pulls pymupdf, which is AGPL-3.0-or-commercial — run it
+#                         as a separate service, never as part of a product.
+# ddgs 9.15.0           — MIT. REQUIRED: gpt-researcher declares
+#                         `duckduckgo-search` but imports `ddgs`. Without this the
+#                         search step raises ImportError at runtime.
+crawlee==1.9.2
+gpt-researcher==0.16.0
+ddgs==9.15.0

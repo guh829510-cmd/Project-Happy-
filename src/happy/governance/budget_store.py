@@ -21,6 +21,8 @@ is always to hold more, never less.
 
 from __future__ import annotations
 
+import hmac
+import os
 import sqlite3
 import threading
 from collections.abc import Mapping, Sequence
@@ -31,7 +33,18 @@ from pathlib import Path
 from typing import Any, Final
 
 from happy.governance.errors import BudgetExceeded
-from happy.governance.hashing import GENESIS_HASH, chain_hash
+from happy.governance.hashing import GENESIS_HASH, canonical_json, chain_hash
+
+AUDIT_SECRET_ENV = "HAPPY_AUDIT_HMAC_SECRET"
+"""Environment variable holding the audit-chain signing secret (hex).
+
+Held outside the database on purpose. The plain SHA-256 chain is recomputable
+by anyone who can write to the audit table; a keyed chain is not, unless they
+also hold this secret. That is the whole difference between "detects
+corruption" and "detects tampering".
+"""
+
+MIN_AUDIT_SECRET_BYTES = 32
 
 NANO: Final = Decimal("1000000000")
 """Nanodollars per dollar. Costs below 1e-9 USD round up to 1, never to 0."""
@@ -142,12 +155,43 @@ class BudgetStore:
     the check and the write cannot be separated by another writer.
     """
 
-    def __init__(self, path: str | Path, *, ttl: timedelta = DEFAULT_RESERVATION_TTL) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        ttl: timedelta = DEFAULT_RESERVATION_TTL,
+        audit_secret: bytes | None = None,
+    ) -> None:
+        """Open the store.
+
+        Args:
+            audit_secret: key for the audit chain. Defaults to the hex value in
+                `$HAPPY_AUDIT_HMAC_SECRET`. When absent the chain falls back to
+                the unkeyed SHA-256 form, which is tamper-*evident* only — see
+                `chain_mode`.
+        """
         self._path = str(path)
         self._ttl = ttl
+        self._secret = audit_secret if audit_secret is not None else _secret_from_env()
+        if self._secret is not None and len(self._secret) < MIN_AUDIT_SECRET_BYTES:
+            raise ValueError(
+                f"audit secret must be at least {MIN_AUDIT_SECRET_BYTES} bytes, "
+                f"got {len(self._secret)}"
+            )
         self._local = threading.local()
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+
+    @property
+    def chain_mode(self) -> str:
+        """`"hmac-sha256"` when a secret is held, `"sha256"` when not."""
+        return "hmac-sha256" if self._secret else "sha256"
+
+    def _entry_hash(self, prev_hash: str, payload: dict[str, Any]) -> str:
+        if self._secret is None:
+            return chain_hash(prev_hash, payload)
+        material = (prev_hash + canonical_json(payload)).encode("utf-8")
+        return hmac.new(self._secret, material, "sha256").hexdigest()
 
     def _connect(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)
@@ -492,7 +536,7 @@ class BudgetStore:
                 amount_nano,
                 detail,
                 prev_hash,
-                chain_hash(prev_hash, payload),
+                self._entry_hash(prev_hash, payload),
             ),
         )
 
@@ -535,8 +579,8 @@ class BudgetStore:
                 "amount_nano": entry["amount_nano"],
                 "detail": entry["detail"],
             }
-            expected = chain_hash(prev_hash, payload)
-            if expected != entry["entry_hash"]:
+            expected = self._entry_hash(prev_hash, payload)
+            if not hmac.compare_digest(expected, entry["entry_hash"]):
                 raise AuditChainBroken(entry["seq"], "entry content was altered")
             prev_hash = entry["entry_hash"]
 
@@ -572,3 +616,14 @@ def _loads(raw: str) -> tuple[tuple[str, str], ...]:
     import json
 
     return tuple((a, b) for a, b in json.loads(raw))
+
+
+def _secret_from_env() -> bytes | None:
+    """Read the audit signing secret from the environment, if present."""
+    raw = os.environ.get(AUDIT_SECRET_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        return raw.encode("utf-8")

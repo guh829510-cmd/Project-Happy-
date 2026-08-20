@@ -682,3 +682,93 @@ class TestAudit:
         s2 = BudgetStore(db)
         s2.verify_audit()
         assert len(s2.audit_entries()) == 1
+
+
+class TestAuditChainKeying:
+    """The audit head is HMAC'd with an externally held secret.
+
+    Without a key the chain detects corruption but not a determined edit: an
+    attacker with write access recomputes every hash from the public algorithm.
+    With a key they cannot, because they do not hold it.
+    """
+
+    SECRET = bytes(range(32))
+
+    def _seed(self, store: BudgetStore) -> None:
+        store.set_limit("company", "global", "1.00")
+        r = store.reserve(
+            request_id="r1", amount_usd=Decimal("0.10"),
+            scopes={"company": "global"}, now=NOW,
+        )
+        store.settle(r, Decimal("0.01"), now=NOW)
+
+    def _recompute_with_public_algorithm(self, store: BudgetStore) -> None:
+        """Exactly what an attacker with DB write access would do."""
+        from happy.governance.hashing import GENESIS_HASH, chain_hash
+
+        conn = store._connect()
+        conn.execute("UPDATE audit SET amount_nano = 1 WHERE seq = 1")
+        rows = conn.execute(
+            "SELECT seq,recorded_at,event,request_id,amount_nano,detail "
+            "FROM audit ORDER BY seq"
+        ).fetchall()
+        prev = GENESIS_HASH
+        for seq, ts, event, rid, amt, detail in rows:
+            payload = {
+                "recorded_at": ts, "event": event, "request_id": rid,
+                "amount_nano": amt, "detail": detail,
+            }
+            h = chain_hash(prev, payload)
+            conn.execute(
+                "UPDATE audit SET prev_hash=?, entry_hash=? WHERE seq=?", (prev, h, seq)
+            )
+            prev = h
+
+    def test_keyed_mode_is_reported(self, tmp_path) -> None:
+        store = BudgetStore(tmp_path / "k.db", audit_secret=self.SECRET)
+        assert store.chain_mode == "hmac-sha256"
+
+    def test_unkeyed_mode_is_reported(self, tmp_path) -> None:
+        assert BudgetStore(tmp_path / "u.db", audit_secret=None).chain_mode == "sha256"
+
+    def test_keyed_chain_verifies(self, tmp_path) -> None:
+        store = BudgetStore(tmp_path / "k.db", audit_secret=self.SECRET)
+        self._seed(store)
+        store.verify_audit()
+
+    def test_keyed_chain_detects_a_recomputed_forgery(self, tmp_path) -> None:
+        """The point of the key."""
+        store = BudgetStore(tmp_path / "k.db", audit_secret=self.SECRET)
+        self._seed(store)
+        self._recompute_with_public_algorithm(store)
+        with pytest.raises(AuditChainBroken):
+            store.verify_audit()
+
+    def test_unkeyed_chain_does_NOT_detect_it(self, tmp_path) -> None:
+        """The documented limitation, asserted so it cannot be forgotten."""
+        store = BudgetStore(tmp_path / "u.db", audit_secret=None)
+        self._seed(store)
+        self._recompute_with_public_algorithm(store)
+        store.verify_audit()  # passes — this is why the key matters
+
+    def test_wrong_secret_is_rejected(self, tmp_path) -> None:
+        db = tmp_path / "k.db"
+        self._seed(BudgetStore(db, audit_secret=self.SECRET))
+        with pytest.raises(AuditChainBroken):
+            BudgetStore(db, audit_secret=b"\x09" * 32).verify_audit()
+
+    def test_short_secret_is_refused(self, tmp_path) -> None:
+        with pytest.raises(ValueError, match="at least"):
+            BudgetStore(tmp_path / "s.db", audit_secret=b"tooshort")
+
+    def test_secret_is_read_from_the_environment(self, tmp_path, monkeypatch) -> None:
+        from happy.governance.budget_store import AUDIT_SECRET_ENV
+
+        monkeypatch.setenv(AUDIT_SECRET_ENV, self.SECRET.hex())
+        assert BudgetStore(tmp_path / "e.db").chain_mode == "hmac-sha256"
+
+    def test_secret_never_appears_in_the_database(self, tmp_path) -> None:
+        db = tmp_path / "k.db"
+        self._seed(BudgetStore(db, audit_secret=self.SECRET))
+        assert self.SECRET.hex().encode() not in db.read_bytes()
+        assert self.SECRET not in db.read_bytes()
