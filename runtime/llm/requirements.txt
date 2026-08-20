@@ -1,0 +1,20 @@
+# Step 1 runtime. Versions verified from the installed artifacts, 2026-08-20.
+#
+# litellm 1.97.0  — dist metadata License-Expression: MIT. Repo LICENSE is MIT
+#                   for everything outside enterprise/; we use only the core.
+# langfuse 2.60.10 — dist metadata License: MIT.
+#
+# The two pins below are NOT preferences. Both were found by this smoke test:
+#
+#   fastapi==0.120.0
+#     litellm 1.97.0 imports get_flat_dependant from fastapi.dependencies.utils.
+#     Verified present in 0.120.0 and 0.121.0, verified REMOVED in 0.141.1
+#     (which pip installs by default). Without this pin the proxy will not start.
+#
+#   langfuse==2.60.10  (the 2.x line, NOT 3.x/4.x)
+#     litellm 1.97.0 passes sdk_integration= to the Langfuse constructor.
+#     langfuse 3.x removed that argument, so the callback fails to initialise
+#     and NO traces are emitted. Verified: 3.14.0 breaks, 2.60.10 works.
+litellm[proxy]==1.97.0
+langfuse==2.60.10
+fastapi==0.120.0

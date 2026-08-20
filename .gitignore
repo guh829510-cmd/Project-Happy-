@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+.env
+data/
+runtime/llm/scripts/captured_traces.jsonl
+storage/
+runtime/research/.venv/
