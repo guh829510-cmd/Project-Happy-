@@ -103,12 +103,21 @@ Dependencies point **inward only**. An arrow means "may import from".
 |---|---|---|---|---|---|
 | 1 | **Domain / core** | `happy.core` | Entities, value objects, business rules, risk taxonomy, pipeline state machine, errors, `Clock`/`Random` protocols | stdlib, `pydantic` | everything else |
 | 2 | **Agent runtime** | `happy.runtime` | Tick scheduler, task graph, delegation, budget accounting, retry, depth limits, agent loop | `core`, `ports`, `governance` | `adapters`, `integrations`, `ui` |
-| 3 | **Capability ports** | `happy.ports` | Abstract interfaces **only** — `LLMProvider`, `MemoryStore`, `DataSource`, `CodingAgent`, `Notifier`, `Storage`, `JobQueue`, `Ledger` | `core` | everything else |
+| 3 | **Capability ports** | `happy.core.ports` | Abstract interfaces **only**, plus their typed IO schemas and capability declarations | `core` | everything else |
 | 4 | **Adapters** | `happy.adapters` | Concrete port implementations, one per vendor, **plus a fake per port** | `core`, `ports`, `integrations` | `runtime`, `governance`, `ui` |
 | 5 | **Governance** | `happy.governance` | Risk classifier, policy engine, T4 deny list, approval gateway, capability tokens, budget guard, hash-chained audit, kill switch, `GovernedPort` proxy | `core`, `ports` | `adapters`, `integrations`, `runtime`, `ui` |
 | 6 | **Persistence** | `happy.persistence` | SQLAlchemy models, repositories, Alembic migrations, FTS5 index, unit of work | `core` | `runtime`, `adapters`, `ui`, `governance` |
 | 7 | **UI** | `happy.ui` | FastAPI app, Jinja2 templates, HTMX partials, SSE, PWA shell, approval inbox | `core`, `runtime`, `governance`, `persistence` | `adapters`, `integrations` |
 | 8 | **External integrations** | `happy.integrations` | Vendor SDK wrappers, credential resolution, rate limiting, retry/backoff, **per-source licensing and ToS metadata** | `core` | `runtime`, `governance`, `ui`, `adapters` |
+
+### 2.0 Where the ports live
+
+Modules 1 and 3 are one package on disk: ports live at **`src/happy/core/ports/`**,
+not at `happy.ports`. A port is an abstract contract expressed entirely in
+domain types and depends on nothing else in the system, so nesting it inside
+`core` removes a package boundary that carried no rule with it. The eight-module
+layering is unchanged — `adapters` still depends on `ports`, and `core` still
+imports nothing outward.
 
 ### 2.1 Adapters vs. external integrations — the least obvious split
 
@@ -126,10 +135,14 @@ src/happy/
 ├── core/                    # 1 · pure domain, zero I/O
 │   ├── entities/            #     Venture, Signal, Opportunity, Idea, Thesis,
 │   │                        #     Experiment, Decision, Task, LedgerEntry, …
-│   ├── risk.py              #     RiskTier T0–T4, ProhibitedAction
+│   ├── risk.py              #     RiskTier T0–T4
+│   ├── capability.py        #     Capability vocabulary, FORBIDDEN_CAPABILITIES
+│   ├── terms.py             #     ProviderTerms, DataSourceMetadata
+│   ├── provenance.py        #     DataProvenance, Evidence
+│   ├── usage_policy.py      #     evaluate_source_usage — the refusal rule
 │   ├── pipeline.py          #     stage machine: signal → … → venture
 │   ├── protocols.py         #     Clock, Random
-│   └── errors.py
+│   ├── errors.py
 ├── runtime/                 # 2 · orchestration
 │   ├── ceo.py               #     bounded action set + planner
 │   ├── tick.py              #     the scheduler entrypoint
@@ -137,7 +150,10 @@ src/happy/
 │   ├── delegation.py
 │   ├── budget.py
 │   └── agent.py             #     generic agent loop
-├── ports/                   # 3 · interfaces only (no logic, no I/O)
+│   └── ports/               # 3 · interfaces only (no logic, no I/O)
+│       ├── base.py          #     PortDescriptor, OperationSpec, registry
+│       └── {llm,research,data_source,financial,browser,code_executor,
+│            git,email,notification,crm,payment,deployment}.py
 ├── adapters/                # 4 · llm/ memory/ data/ coding/ notify/ storage/
 │   │                        #     queue/ ledger/ — each with a fake/
 ├── governance/              # 5 · the kernel
