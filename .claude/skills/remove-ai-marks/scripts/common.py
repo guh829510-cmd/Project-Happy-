@@ -1,4 +1,4 @@
-"""Shared helpers for remove-claude-marks scripts."""
+"""Shared helpers for remove-ai-marks scripts."""
 
 from __future__ import annotations
 

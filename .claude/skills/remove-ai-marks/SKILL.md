@@ -1,5 +1,5 @@
 ---
-name: remove-claude-marks
+name: remove-ai-marks
 description: >
   Remove multi-vendor AI provenance marks: invisible Unicode (Layer A), statistical
   text watermarks via rewrite (Layer B, always offer), and C2PA/EXIF/XMP/container
@@ -7,8 +7,7 @@ description: >
   Gemini/SynthID-class, Copilot, Cursor, Midjourney, DALL-E, Stable Diffusion, Grok,
   Perplexity and open-LLM sampling marks. Use when the user asks to strip
   watermarks, remove C2PA/Content Credentials, clean AI metadata, remove invisible
-  Unicode, anti-detect clean AI output, or runs /remove-claude-marks (alias:
-  /remove-ai-marks).
+  Unicode, anti-detect clean AI output, or runs /remove-ai-marks.
 ---
 
 # Remove AI marks
@@ -34,16 +33,17 @@ Resolve the bundled scripts once and reuse `$SC`. Try the install locations in
 order and keep the first that answers:
 
 ```bash
-for d in ~/.claude/skills/remove-claude-marks/scripts \
-         ./.claude/skills/remove-claude-marks/scripts \
-         ./skills/remove-claude-marks/scripts \
-         /mnt/skills/user/remove-claude-marks/scripts \
-         /mnt/user-data/skills/remove-claude-marks/scripts; do
+for d in ~/.claude/skills/remove-ai-marks/scripts \
+         ./.claude/skills/remove-ai-marks/scripts \
+         ./skills/remove-ai-marks/scripts \
+         /mnt/skills/user/remove-ai-marks/scripts \
+         /mnt/user-data/skills/remove-ai-marks/scripts \
+         ~/.claude/skills/remove-claude-marks/scripts; do
   [ -f "$d/clean_file.py" ] && SC="$d" && break
 done
 # Last resort: search the usual skill roots for the bundled scripts.
 [ -z "${SC:-}" ] && SC="$(find ~ /mnt . -maxdepth 6 -type f -name clean_file.py \
-  -path '*remove-claude-marks/scripts/*' 2>/dev/null | head -1 | xargs -r dirname)"
+  -path '*remove-*-marks/scripts/*' 2>/dev/null | head -1 | xargs -r dirname)"
 python3 "$SC/inspect_file.py" --help >/dev/null && echo "ready: $SC"
 ```
 
